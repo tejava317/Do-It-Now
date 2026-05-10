@@ -44,6 +44,20 @@ final class TodoStore: ObservableObject {
         save()
     }
 
+    @discardableResult
+    func update(id: UUID, title: String) -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let index = items.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+
+        guard items[index].title != trimmed else { return true }
+        items[index].title = trimmed
+        save()
+        return true
+    }
+
     func undoLastAdd() {
         guard let id = addUndoStack.popLast() else { return }
         items.removeAll { $0.id == id }

@@ -1,10 +1,16 @@
 import SwiftUI
 
+#if os(macOS)
+import AppKit
+#endif
+
 struct PopoverView: View {
     @ObservedObject var store: TodoStore
     @ObservedObject var focusMode: FocusModeController
 
     @State private var inputText: String = ""
+    @State private var invalidAddAttempts: CGFloat = 0
+    @State private var finishEditingRequests: Int = 0
     @FocusState private var inputFocused: Bool
 
     private let listHeight: CGFloat = 150
@@ -45,15 +51,25 @@ struct PopoverView: View {
         } else {
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(store.items) { item in
-                        TodoRow(item: item) {
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                store.complete(id: item.id)
+                    VStack(spacing: 0) {
+                        ForEach(store.items) { item in
+                            TodoRow(item: item, finishEditingRequests: finishEditingRequests, onRename: { newTitle in
+                                store.update(id: item.id, title: newTitle)
+                            }) {
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    store.complete(id: item.id)
+                                }
                             }
                         }
                     }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, minHeight: listHeight, alignment: .top)
+                .background {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture(perform: finishCurrentEdit)
+                }
             }
             .frame(height: listHeight)
         }
@@ -64,18 +80,36 @@ struct PopoverView: View {
             .textFieldStyle(.plain)
             .font(.system(size: 13))
             .focused($inputFocused)
+            .modifier(ShakeEffect(animatableData: invalidAddAttempts))
             .onSubmit(addCurrentText)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
     }
 
     private func addCurrentText() {
-        let text = inputText
+        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            rejectEmptyAdd()
+            return
+        }
+
         inputText = ""
         withAnimation(.easeOut(duration: 0.2)) {
             store.add(text)
         }
         inputFocused = true
+    }
+
+    private func rejectEmptyAdd() {
+        inputText = ""
+        withAnimation(.linear(duration: 0.35)) {
+            invalidAddAttempts += 1
+        }
+        inputFocused = true
+    }
+
+    private func finishCurrentEdit() {
+        finishEditingRequests += 1
     }
 
     private func toggleFocusMode() {
@@ -127,29 +161,169 @@ struct PopoverView: View {
 
 private struct TodoRow: View {
     let item: TodoItem
+    let finishEditingRequests: Int
+    let onRename: (String) -> Bool
     let onComplete: () -> Void
 
     @State private var isHovered: Bool = false
+    @State private var isEditing: Bool = false
+    @State private var isCompleting: Bool = false
+    @State private var isDismissing: Bool = false
+    @State private var draftTitle: String = ""
+    @State private var invalidEditAttempts: CGFloat = 0
+    @FocusState private var editFocused: Bool
 
     var body: some View {
         HStack(spacing: 8) {
-            Button(action: onComplete) {
-                Image(systemName: isHovered ? "checkmark.circle.fill" : "circle")
+            Button(action: completeWithFlourish) {
+                Image(systemName: isCompleting || isHovered ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 14))
-                    .foregroundStyle(isHovered ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(isCompleting ? Color.green : (isHovered ? Color.accentColor : Color.secondary))
                     .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.bounce, value: isCompleting)
             }
             .buttonStyle(.plain)
+            .disabled(isCompleting || isDismissing)
 
-            Text(item.title)
-                .font(.system(size: 13))
-                .lineLimit(2)
+            if isEditing {
+                TextField(text: $draftTitle) {
+                    EmptyView()
+                }
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .lineLimit(1)
+                    .focused($editFocused)
+                    .modifier(ShakeEffect(animatableData: invalidEditAttempts))
+                    .onSubmit(commitSubmittedEdit)
+                    .onExitCommand(perform: cancelEdit)
+                    .onChange(of: editFocused) { _, isFocused in
+                        if !isFocused {
+                            finishEditAfterFocusLoss()
+                        }
+                    }
+            } else {
+                Text(item.title)
+                    .font(.system(size: 13))
+                    .lineLimit(2)
+                    .foregroundStyle(isCompleting ? Color.secondary : Color.primary)
+            }
 
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .contentShape(Rectangle())
+        .scaleEffect(isDismissing ? 0.96 : 1, anchor: .leading)
+        .offset(x: isDismissing ? 26 : 0)
+        .opacity(isDismissing ? 0 : 1)
+        .onTapGesture(count: 2, perform: beginEditing)
         .onHover { isHovered = $0 }
+        .onChange(of: finishEditingRequests) { _, _ in
+            finishEditAfterFocusLoss()
+        }
+    }
+
+    private func beginEditing() {
+        guard !isEditing else { return }
+        draftTitle = item.title
+        withAnimation(.easeOut(duration: 0.15)) {
+            isEditing = true
+        }
+        DispatchQueue.main.async {
+            editFocused = true
+        }
+    }
+
+    private func commitSubmittedEdit() {
+        guard isEditing else { return }
+
+        let trimmed = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            rejectEmptyEdit()
+            return
+        }
+
+        saveEdit(trimmed)
+    }
+
+    private func finishEditAfterFocusLoss() {
+        guard isEditing else { return }
+
+        let trimmed = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            cancelEdit()
+            return
+        }
+
+        saveEdit(trimmed)
+    }
+
+    private func saveEdit(_ title: String) {
+        guard onRename(title) else {
+            rejectEmptyEdit()
+            return
+        }
+
+        isEditing = false
+        draftTitle = ""
+    }
+
+    private func cancelEdit() {
+        isEditing = false
+        draftTitle = ""
+    }
+
+    private func rejectEmptyEdit() {
+        draftTitle = ""
+        withAnimation(.linear(duration: 0.35)) {
+            invalidEditAttempts += 1
+        }
+        DispatchQueue.main.async {
+            editFocused = true
+        }
+    }
+
+    private func completeWithFlourish() {
+        guard !isCompleting, !isDismissing else { return }
+
+        cancelEdit()
+        performCompletionFeedback()
+
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.72)) {
+            isCompleting = true
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isDismissing = true
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) {
+            withAnimation(.easeOut(duration: 0.18)) {
+                onComplete()
+            }
+        }
+    }
+
+    private func performCompletionFeedback() {
+        #if os(macOS)
+        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        #endif
+    }
+}
+
+private struct ShakeEffect: GeometryEffect {
+    var amount: CGFloat = 3
+    var shakesPerUnit: CGFloat = 3
+    var animatableData: CGFloat
+
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        ProjectionTransform(
+            CGAffineTransform(
+                translationX: amount * sin(animatableData * .pi * shakesPerUnit * 2),
+                y: 0
+            )
+        )
     }
 }
