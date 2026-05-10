@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 #if os(macOS)
 import AppKit
@@ -13,10 +14,12 @@ struct PopoverView: View {
     @State private var finishEditingRequests: Int = 0
     @State private var completeAllRequests: Int = 0
     @State private var isCompletingAll: Bool = false
+    @State private var draggedItemID: UUID?
+    @State private var hasUnsavedDragMove: Bool = false
     @FocusState private var inputFocused: Bool
 
     private let listHeight: CGFloat = 150
-    private let completeAllDelayStep: Double = 0.12
+    private let completeAllDelayStep: Double = 0.15
 
     var body: some View {
         VStack(spacing: 0) {
@@ -56,13 +59,38 @@ struct PopoverView: View {
                 VStack(spacing: 0) {
                     VStack(spacing: 0) {
                         ForEach(store.items) { item in
-                            TodoRow(item: item, finishEditingRequests: finishEditingRequests, completeAllRequests: completeAllRequests, completeAllDelay: completeAllDelay(for: item), onRename: { newTitle in
-                                store.update(id: item.id, title: newTitle)
-                            }) {
+                            TodoRow(
+                                item: item,
+                                finishEditingRequests: finishEditingRequests,
+                                completeAllRequests: completeAllRequests,
+                                completeAllDelay: completeAllDelay(for: item),
+                                isDragging: draggedItemID == item.id,
+                                onRename: { newTitle in
+                                    store.update(id: item.id, title: newTitle)
+                                }
+                            ) {
                                 withAnimation(.easeOut(duration: 0.2)) {
                                     store.complete(id: item.id)
                                 }
                             }
+                            .onDrag {
+                                finishCurrentEdit()
+                                draggedItemID = item.id
+                                hasUnsavedDragMove = false
+                                return NSItemProvider(object: item.id.uuidString as NSString)
+                            } preview: {
+                                Color.clear
+                                    .frame(width: 1, height: 1)
+                            }
+                            .onDrop(
+                                of: [.text],
+                                delegate: TodoRowDropDelegate(
+                                    item: item,
+                                    draggedItemID: $draggedItemID,
+                                    move: moveDraggedItem,
+                                    finish: finishDragDrop
+                                )
+                            )
                         }
                     }
                     .padding(.vertical, 4)
@@ -72,6 +100,10 @@ struct PopoverView: View {
                     Color.clear
                         .contentShape(Rectangle())
                         .onTapGesture(perform: finishCurrentEdit)
+                }
+                .onDrop(of: [.text], isTargeted: nil) { _ in
+                    finishDragDrop()
+                    return true
                 }
             }
             .frame(height: listHeight)
@@ -118,6 +150,22 @@ struct PopoverView: View {
     private func completeAllDelay(for item: TodoItem) -> Double {
         guard let index = store.items.firstIndex(where: { $0.id == item.id }) else { return 0 }
         return Double(index) * completeAllDelayStep
+    }
+
+    private func moveDraggedItem(_ draggedID: UUID, to targetID: UUID) {
+        withAnimation(.easeInOut(duration: 0.14)) {
+            if store.move(id: draggedID, to: targetID, saveImmediately: false) {
+                hasUnsavedDragMove = true
+            }
+        }
+    }
+
+    private func finishDragDrop() {
+        if hasUnsavedDragMove {
+            store.saveCurrentOrder()
+        }
+        draggedItemID = nil
+        hasUnsavedDragMove = false
     }
 
     private func toggleFocusMode() {
@@ -181,6 +229,7 @@ private struct TodoRow: View {
     let finishEditingRequests: Int
     let completeAllRequests: Int
     let completeAllDelay: Double
+    let isDragging: Bool
     let onRename: (String) -> Bool
     let onComplete: () -> Void
 
@@ -236,7 +285,7 @@ private struct TodoRow: View {
         .contentShape(Rectangle())
         .scaleEffect(isDismissing ? 0.96 : 1, anchor: .leading)
         .offset(x: isDismissing ? 26 : 0)
-        .opacity(isDismissing ? 0 : 1)
+        .opacity(rowOpacity)
         .onTapGesture(count: 2, perform: beginEditing)
         .onHover { isHovered = $0 }
         .onChange(of: finishEditingRequests) { _, _ in
@@ -330,7 +379,7 @@ private struct TodoRow: View {
             isCompleting = true
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) {
             withAnimation(.easeInOut(duration: 0.2)) {
                 isDismissing = true
             }
@@ -347,6 +396,41 @@ private struct TodoRow: View {
         #if os(macOS)
         NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
         #endif
+    }
+
+    private var rowOpacity: Double {
+        if isDismissing { return 0 }
+        if isDragging { return 0.4 }
+        return 1
+    }
+}
+
+private struct TodoRowDropDelegate: DropDelegate {
+    let item: TodoItem
+    @Binding var draggedItemID: UUID?
+    let move: (UUID, UUID) -> Void
+    let finish: () -> Void
+
+    func validateDrop(info: DropInfo) -> Bool {
+        draggedItemID != nil
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let draggedItemID,
+              draggedItemID != item.id else {
+            return
+        }
+
+        move(draggedItemID, item.id)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        finish()
+        return true
     }
 }
 

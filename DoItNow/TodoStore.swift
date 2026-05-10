@@ -58,6 +58,26 @@ final class TodoStore: ObservableObject {
         return true
     }
 
+    @discardableResult
+    func move(id: UUID, to targetID: UUID, saveImmediately: Bool = true) -> Bool {
+        guard id != targetID,
+              let sourceIndex = items.firstIndex(where: { $0.id == id }),
+              let targetIndex = items.firstIndex(where: { $0.id == targetID }) else {
+            return false
+        }
+
+        let item = items.remove(at: sourceIndex)
+        items.insert(item, at: targetIndex)
+        if saveImmediately {
+            save()
+        }
+        return true
+    }
+
+    func saveCurrentOrder() {
+        save()
+    }
+
     func undoLastAdd() {
         guard let id = addUndoStack.popLast() else { return }
         items.removeAll { $0.id == id }
