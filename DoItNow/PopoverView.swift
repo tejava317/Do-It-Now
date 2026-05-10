@@ -11,9 +11,12 @@ struct PopoverView: View {
     @State private var inputText: String = ""
     @State private var invalidAddAttempts: CGFloat = 0
     @State private var finishEditingRequests: Int = 0
+    @State private var completeAllRequests: Int = 0
+    @State private var isCompletingAll: Bool = false
     @FocusState private var inputFocused: Bool
 
     private let listHeight: CGFloat = 150
+    private let completeAllDelayStep: Double = 0.12
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,7 +56,7 @@ struct PopoverView: View {
                 VStack(spacing: 0) {
                     VStack(spacing: 0) {
                         ForEach(store.items) { item in
-                            TodoRow(item: item, finishEditingRequests: finishEditingRequests, onRename: { newTitle in
+                            TodoRow(item: item, finishEditingRequests: finishEditingRequests, completeAllRequests: completeAllRequests, completeAllDelay: completeAllDelay(for: item), onRename: { newTitle in
                                 store.update(id: item.id, title: newTitle)
                             }) {
                                 withAnimation(.easeOut(duration: 0.2)) {
@@ -112,6 +115,11 @@ struct PopoverView: View {
         finishEditingRequests += 1
     }
 
+    private func completeAllDelay(for item: TodoItem) -> Double {
+        guard let index = store.items.firstIndex(where: { $0.id == item.id }) else { return 0 }
+        return Double(index) * completeAllDelayStep
+    }
+
     private func toggleFocusMode() {
         if focusMode.isOn {
             focusMode.toggle()
@@ -145,23 +153,34 @@ struct PopoverView: View {
     }
 
     private var actionButton: some View {
-        Button {
-            withAnimation(.easeOut(duration: 0.2)) {
-                store.completeAll()
-            }
-        } label: {
+        Button(action: completeAllSequentially) {
             Text("Complete All")
                 .font(.system(size: 12))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(store.items.isEmpty ? Color.secondary : Color.blue)
-        .disabled(store.items.isEmpty)
+        .foregroundStyle(store.items.isEmpty || isCompletingAll ? Color.secondary : Color.blue)
+        .disabled(store.items.isEmpty || isCompletingAll)
+    }
+
+    private func completeAllSequentially() {
+        guard !store.items.isEmpty, !isCompletingAll else { return }
+
+        finishCurrentEdit()
+        isCompletingAll = true
+        completeAllRequests += 1
+
+        let finalDelay = Double(max(store.items.count - 1, 0)) * completeAllDelayStep
+        DispatchQueue.main.asyncAfter(deadline: .now() + finalDelay + 0.55) {
+            isCompletingAll = false
+        }
     }
 }
 
 private struct TodoRow: View {
     let item: TodoItem
     let finishEditingRequests: Int
+    let completeAllRequests: Int
+    let completeAllDelay: Double
     let onRename: (String) -> Bool
     let onComplete: () -> Void
 
@@ -175,7 +194,9 @@ private struct TodoRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Button(action: completeWithFlourish) {
+            Button {
+                completeWithFlourish()
+            } label: {
                 Image(systemName: isCompleting || isHovered ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 14))
                     .foregroundStyle(isCompleting ? Color.green : (isHovered ? Color.accentColor : Color.secondary))
@@ -220,6 +241,9 @@ private struct TodoRow: View {
         .onHover { isHovered = $0 }
         .onChange(of: finishEditingRequests) { _, _ in
             finishEditAfterFocusLoss()
+        }
+        .onChange(of: completeAllRequests) { _, _ in
+            completeWithFlourish(after: completeAllDelay)
         }
     }
 
@@ -283,7 +307,20 @@ private struct TodoRow: View {
         }
     }
 
-    private func completeWithFlourish() {
+    private func completeWithFlourish(after delay: Double = 0) {
+        guard !isCompleting, !isDismissing else { return }
+
+        guard delay > 0 else {
+            startCompletionAnimation()
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            startCompletionAnimation()
+        }
+    }
+
+    private func startCompletionAnimation() {
         guard !isCompleting, !isDismissing else { return }
 
         cancelEdit()
