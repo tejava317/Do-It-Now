@@ -37,7 +37,7 @@ struct PopoverView: View {
     @ViewBuilder
     private var list: some View {
         if store.items.isEmpty {
-            Text("할 일 없음")
+            Text("No tasks")
                 .foregroundStyle(.secondary)
                 .font(.callout)
                 .frame(maxWidth: .infinity)
@@ -60,7 +60,7 @@ struct PopoverView: View {
     }
 
     private var input: some View {
-        TextField("할 일 추가", text: $inputText)
+        TextField("Add a task", text: $inputText)
             .textFieldStyle(.plain)
             .font(.system(size: 13))
             .focused($inputFocused)
@@ -95,7 +95,7 @@ struct PopoverView: View {
                     Circle()
                         .fill(focusMode.isOn ? Color.red : Color.secondary.opacity(0.4))
                         .frame(width: 7, height: 7)
-                    Text("집중 모드")
+                    Text("Focus Mode")
                         .font(.system(size: 12))
                 }
             }
@@ -116,7 +116,7 @@ struct PopoverView: View {
                 store.completeAll()
             }
         } label: {
-            Text("전체 완료")
+            Text("Complete All")
                 .font(.system(size: 12))
         }
         .buttonStyle(.plain)

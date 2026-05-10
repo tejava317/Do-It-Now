@@ -85,7 +85,7 @@ final class StatusItemController: NSObject {
         let menu = NSMenu()
 
         let launchItem = NSMenuItem(
-            title: "로그인 시 시작",
+            title: NSLocalizedString("Launch at Login", comment: "Right-click menu item to toggle launch at login"),
             action: #selector(toggleLaunchAtLogin),
             keyEquivalent: ""
         )
@@ -96,7 +96,7 @@ final class StatusItemController: NSObject {
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
-            title: "DoItNow 종료",
+            title: NSLocalizedString("Quit", comment: "Right-click menu item to quit the app"),
             action: #selector(quit),
             keyEquivalent: "q"
         )
