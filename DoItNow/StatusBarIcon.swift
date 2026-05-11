@@ -2,7 +2,7 @@ import AppKit
 
 enum StatusBarIcon {
     static func make(count: Int, appearance: NSAppearance) -> NSImage {
-        let size = NSSize(width: 24, height: 18)
+        let size = NSSize(width: 26, height: 20)
         var rendered: NSImage?
         appearance.performAsCurrentDrawingAppearance {
             rendered = render(size: size, count: count)
@@ -29,13 +29,13 @@ enum StatusBarIcon {
         let paletteConfig = NSImage.SymbolConfiguration(paletteColors: [NSColor.labelColor])
         let config = baseConfig.applying(paletteConfig)
 
-        guard let check = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)?
+        guard let check = NSImage(systemSymbolName: "checklist", accessibilityDescription: nil)?
             .withSymbolConfiguration(config) else { return }
 
         let checkSize = check.size
         let drawRect = NSRect(
             x: (rect.width - checkSize.width) / 2 - 3,
-            y: (rect.height - checkSize.height) / 2,
+            y: (rect.height - checkSize.height) / 2 + 1,
             width: checkSize.width,
             height: checkSize.height
         )
