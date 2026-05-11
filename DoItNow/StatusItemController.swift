@@ -121,6 +121,7 @@ final class StatusItemController: NSObject {
         button.wantsLayer = true
         guard let layer = button.layer else { return }
 
+        centerAnimationAnchor(for: layer)
         layer.removeAnimation(forKey: "doitnow.pulse")
 
         let opacity = CAKeyframeAnimation(keyPath: "opacity")
@@ -139,5 +140,23 @@ final class StatusItemController: NSObject {
         group.isRemovedOnCompletion = true
 
         layer.add(group, forKey: "doitnow.pulse")
+    }
+
+    private func centerAnimationAnchor(for layer: CALayer) {
+        let centeredAnchor = CGPoint(x: 0.5, y: 0.5)
+        guard layer.anchorPoint != centeredAnchor else { return }
+
+        let oldAnchor = layer.anchorPoint
+        let oldPosition = layer.position
+        let bounds = layer.bounds
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.anchorPoint = centeredAnchor
+        layer.position = CGPoint(
+            x: oldPosition.x + (centeredAnchor.x - oldAnchor.x) * bounds.width,
+            y: oldPosition.y + (centeredAnchor.y - oldAnchor.y) * bounds.height
+        )
+        CATransaction.commit()
     }
 }

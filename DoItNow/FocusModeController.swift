@@ -7,7 +7,7 @@ final class FocusModeController: ObservableObject {
 
     var onPulse: (() -> Void)?
 
-    private let interval: TimeInterval = 10 * 60
+    private let interval: TimeInterval = 5 * 60
     private var timer: Timer?
     private weak var store: TodoStore?
 
